@@ -1,17 +1,21 @@
-import 'dart:convert';
+import 'dart:collection';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:untitled/article.dart';
+import 'package:untitled/src/article.dart';
+import 'package:untitled/src/hn_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'json_parse.dart';
-
 void main() {
-  runApp(MyApp());
+  final hnBloc = HackerNewsBloc();
+  runApp(MyApp(
+    bloc: hnBloc,
+  ));
 }
 
 class MyApp extends StatelessWidget {
+  final HackerNewsBloc bloc;
+  MyApp({Key? key, required this.bloc}) : super(key: key);
+
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
@@ -20,13 +24,19 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: MyHomePage(title: 'Flutter Demo Home Page'),
+      home: MyHomePage(
+        title: 'Flutter Hacker News',
+        bloc: bloc,
+      ),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  MyHomePage({Key? key, required this.title}) : super(key: key);
+  final HackerNewsBloc bloc;
+
+  MyHomePage({Key? key, required this.title, required this.bloc})
+      : super(key: key);
   final String title;
 
   @override
@@ -34,86 +44,42 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  static Function(ArticleBuilder) newCompanyArticle(
-      String companyName, int comments) {
-    return (b) => b
-      ..id = 0
-      ..title = "company domain"
-      ..type = 'boring'
-      ..by = ""
-      ..score = 0
-      ..text = 'hello $companyName!'
-      ..comments = comments
-      ..url = 'http://$companyName.com';
-  }
-
-  final List<Article> sampleArticles = [
-    Article(newCompanyArticle('naver', 1302)),
-    Article(newCompanyArticle('google', 111)),
-    Article(newCompanyArticle('kakao', 1322)),
-    Article(newCompanyArticle('microsoft', 1304)),
-  ];
-
-  var idList = [];
-
-  _MyHomePageState() {
-    refreshStoryIds();
-  }
-
-  refreshStoryIds() async {
-    var url = Uri.https('hacker-news.firebaseio.com', '/v0/topstories.json');
-    if (idList.isNotEmpty) {
-      idList.shuffle();
-      idList = idList.sublist(0, 50);
-      return;
-    }
-
-    final res = await http.get(url);
-    if (res.statusCode == 200) {
-      idList = json.decode(res.body);
-      idList.shuffle();
-      idList = idList.sublist(0, 50);
-    }
-  }
-
-  Future<Article?>? getArticle(itemId) async {
-    final storyUrl =
-        Uri.https('hacker-news.firebaseio.com', '/v0/item/$itemId.json');
-    final storyRes = await http.get(storyUrl);
-
-    if (storyRes.statusCode == 200) {
-      return parseArticle(storyRes.body);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    int _currentIndex = 0;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
+        // leading: LoadingInfo(widget.bloc.isloadingSubject),
       ),
-      body: new RefreshIndicator(
-        onRefresh: () async {
-          await new Future.delayed(const Duration(milliseconds: 300));
+      body: StreamBuilder<UnmodifiableListView<Article>>(
+        stream: widget.bloc.articles,
+        initialData: UnmodifiableListView<Article>([]),
+        builder: (context, snapshot) => ListView(
+          children: snapshot.data!.map(_buildItem).toList(),
+        ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        onTap: (index) {
+          if (index == 0) {
+            widget.bloc.storiesType.add(StoriesType.topStories);
+          } else {
+            widget.bloc.storiesType.add(StoriesType.newStories);
+          }
           setState(() {
-            refreshStoryIds();
+            _currentIndex = index;
           });
         },
-        child: new ListView(
-            children: idList
-                .map(
-                  (id) => FutureBuilder<Article?>(
-                    future: getArticle(id),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.done) {
-                        return _buildItem(snapshot.data!);
-                      } else {
-                        return Center(child: CircularProgressIndicator());
-                      }
-                    },
-                  ),
-                )
-                .toList()),
+        currentIndex: _currentIndex,
+        items: [
+          BottomNavigationBarItem(
+            label: 'Top stories',
+            icon: Icon(Icons.arrow_drop_down),
+          ),
+          BottomNavigationBarItem(
+              label: 'New stories', icon: Icon(Icons.new_releases))
+        ],
       ),
     );
   }
@@ -140,11 +106,7 @@ Widget _buildItem(Article article) {
                   final myDomain = article.url;
                   try {
                     launch(myDomain!);
-                    print("launched $myDomain");
-                  } catch (e) {
-                    print(e);
-                    print("asdf, cannot launch $myDomain");
-                  }
+                  } catch (e) {}
                 },
                 color: Colors.green,
               )
@@ -152,4 +114,21 @@ Widget _buildItem(Article article) {
           )
         ],
       ));
+}
+
+class LoadingInfo extends StatelessWidget {
+  final Stream<bool> _isLoading;
+  LoadingInfo(this._isLoading);
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder(
+      stream: _isLoading,
+      builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
+        if (snapshot.hasData && snapshot.data!)
+          return CircularProgressIndicator();
+        return Container();
+      },
+    );
+  }
 }

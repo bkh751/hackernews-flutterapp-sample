@@ -16,6 +16,10 @@ abstract class Article implements Built<Article, ArticleBuilder> {
   String get title;
   String? get text;
   int? get comments;
+
+  /// This is the type of the article
+  ///
+  /// It can be either of these: "job","story", "comment","poll"
   String get type;
   String? get url;
   Article._();
